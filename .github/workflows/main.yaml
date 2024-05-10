@@ -65,7 +65,7 @@ jobs:
       
 
       - name: Sign Docker Image
-        if: success()
+        if: success() 
         run: |
           printf "%s" "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
           cosign sign --key cosign.key -y liumoyang/cicd_workshop:${{ github.sha }}
