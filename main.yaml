@@ -1,0 +1,86 @@
+name: CICD_Workshop
+###Make some change
+on:
+  push:
+    branches:
+      - 'release/v[0-9]+.[0-9]+'
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.18'
+      
+      - name: Scan for Vulnerabilities
+        id: trivy_scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'filesystem'
+          scan-dir: '.'
+          format: 'table'
+          fail-on: 'HIGH'
+          ignore-unfixed: true
+          severity: 'HIGH'
+          output: 'scan-report.txt'
+            
+      - name: Slack Notification on Failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MESSAGE: "Trivy scan failed, please check the report."
+        
+      - name: Upload Report to Slack
+        if: failure()
+        uses: adrey/slack-file-upload-action@master
+        with:
+          slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          file-path: 'scan-report.txt'
+          channels: ${{ secrets.SLACK_CHANNEL_ID }}
+
+      - name: Set QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: Build Docker Image
+        if: success()
+        run: docker build -t liumoyang/cicd_workshop:${{ github.sha }} .
+      
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+      
+      - name: Push Image to DockerHub
+        run: docker push liumoyang/cicd_workshop:${{ github.sha }}
+
+      - name: Install Cosign
+        if: success()
+        uses: sigstore/cosign-installer@main
+      
+
+      - name: Sign Docker Image
+        if: success()
+        run: |
+          printf "%s" "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
+          cosign sign --key cosign.key -y liumoyang/cicd_workshop:${{ github.sha }}
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+
+      
+      - name: Slack Notification - Success
+        if: success()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MESSAGE: "
+          *Name:* LIU MOYANG
+          *Matriculation Number:* A0291910H
+          *Email:* e1336243@u.nus.edu
+          *Repository:* ${{ github.server_url }}/${{ github.repository }}\n
+          *DockerHub:* https://hub.docker.com/repository/docker/liumoyang/cicd_workshop/general "
